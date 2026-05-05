@@ -6,7 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
@@ -30,17 +30,18 @@ func main() {
 func run(ctx context.Context, cancel context.CancelFunc, httpPort int, dataDir string) int {
 	logger, closeFunc, err := initializeLogger(os.Getenv("LINKO_LOG_FILE"))
 	if err != nil {
-		log.Fatalf("failed to initialize logger: %v", err)
+		slog.Info(fmt.Sprintf("failed to initialize logger: %v", err))
+		os.Exit(1)
 	}
 	defer func() {
 		if err := closeFunc(); err != nil {
-			log.Printf("failed to close logger: %v", err)
+			logger.Info(fmt.Sprintf("failed to close logger: %v", err))
 		}
 	}()
 
 	st, err := store.New(dataDir, logger)
 	if err != nil {
-		logger.Printf("failed to create store: %v", err)
+		logger.Info(fmt.Sprintf("failed to create store: %v", err))
 		return 1
 	}
 
@@ -50,21 +51,21 @@ func run(ctx context.Context, cancel context.CancelFunc, httpPort int, dataDir s
 		serverErr = s.start()
 	}()
 
-	logger.Printf("Linko is running on http://localhost:%d", httpPort)
+	logger.Info(fmt.Sprintf("Linko is running on http://localhost:%d", httpPort))
 
 	<-ctx.Done()
 
-	logger.Println("Linko is shutting down")
+	logger.Info("Linko is shutting down")
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	if err := s.shutdown(shutdownCtx); err != nil {
-		logger.Printf("failed to shutdown server: %v", err)
+		logger.Info(fmt.Sprintf("failed to shutdown server: %v", err))
 		return 1
 	}
 	if serverErr != nil {
-		logger.Printf("server error: %v", serverErr)
+		logger.Info(fmt.Sprintf("server error: %v", serverErr))
 		return 1
 	}
 	return 0
@@ -72,7 +73,7 @@ func run(ctx context.Context, cancel context.CancelFunc, httpPort int, dataDir s
 
 type closeFunc func() error
 
-func initializeLogger(logFile string) (*log.Logger, closeFunc, error) {
+func initializeLogger(logFile string) (*slog.Logger, closeFunc, error) {
 	if logFile != "" {
 		logFile, err := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 		if err != nil {
@@ -80,11 +81,11 @@ func initializeLogger(logFile string) (*log.Logger, closeFunc, error) {
 		}
 		bufferedLogFile := bufio.NewWriterSize(logFile, 8192)
 		multiWriter := io.MultiWriter(os.Stderr, bufferedLogFile)
-		return log.New(multiWriter, "", log.LstdFlags), func() error {
+		return slog.New(slog.NewTextHandler(multiWriter, nil)), func() error {
 			return bufferedLogFile.Flush()
 		}, nil
 	}
-	return log.New(os.Stderr, "", log.LstdFlags), func() error {
+	return slog.New(slog.NewTextHandler(os.Stderr, nil)), func() error {
 		return nil
 	}, nil
 }
