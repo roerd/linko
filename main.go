@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"flag"
+	"io"
 	"log"
 	"os"
 	"os/signal"
@@ -25,7 +26,7 @@ func main() {
 }
 
 func run(ctx context.Context, cancel context.CancelFunc, httpPort int, dataDir string) int {
-	logger := log.New(os.Stderr, "DEBUG: ", log.LstdFlags)
+	logger := initializeLogger()
 
 	st, err := store.New(dataDir, logger)
 	if err != nil {
@@ -33,12 +34,7 @@ func run(ctx context.Context, cancel context.CancelFunc, httpPort int, dataDir s
 		return 1
 	}
 
-	logFile, err := os.OpenFile("linko.access.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
-	if err != nil {
-		log.Fatalf("failed to open log file: %v", err)
-	}
-	accessLogger := log.New(logFile, "INFO: ", log.LstdFlags)
-	s := newServer(*st, httpPort, cancel, accessLogger)
+	s := newServer(*st, httpPort, cancel, logger)
 	var serverErr error
 	go func() {
 		serverErr = s.start()
@@ -62,4 +58,17 @@ func run(ctx context.Context, cancel context.CancelFunc, httpPort int, dataDir s
 		return 1
 	}
 	return 0
+}
+
+func initializeLogger() *log.Logger {
+	linkoLogFile := os.Getenv("LINKO_LOG_FILE")
+	if linkoLogFile != "" {
+		logFile, err := os.OpenFile(linkoLogFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+		if err != nil {
+			log.Fatalf("failed to open log file: %v", err)
+		}
+		multiWriter := io.MultiWriter(os.Stderr, logFile)
+		return log.New(multiWriter, "", log.LstdFlags)
+	}
+	return log.New(os.Stderr, "", log.LstdFlags)
 }
