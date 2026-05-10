@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"errors"
 	"flag"
@@ -18,6 +17,7 @@ import (
 	"github.com/lmittmann/tint"
 	"github.com/mattn/go-isatty"
 	pkgerr "github.com/pkg/errors"
+	"gopkg.in/natefinch/lumberjack.v2"
 )
 
 func main() {
@@ -95,12 +95,15 @@ func initializeLogger(logFile string) (*slog.Logger, closeFunc, error) {
 		NoColor:     !(isatty.IsCygwinTerminal(os.Stderr.Fd()) || isatty.IsTerminal(os.Stderr.Fd())),
 	})
 	if logFile != "" {
-		logFile, err := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
-		if err != nil {
-			return nil, nil, fmt.Errorf("failed to open log file: %w", err)
+		logger := &lumberjack.Logger{
+			Filename:   logFile,
+			MaxSize:    1,
+			MaxAge:     28,
+			MaxBackups: 10,
+			LocalTime:  false,
+			Compress:   true,
 		}
-		bufferedLogFile := bufio.NewWriterSize(logFile, 8192)
-		fileHandler := slog.NewJSONHandler(bufferedLogFile, &slog.HandlerOptions{
+		fileHandler := slog.NewJSONHandler(logger, &slog.HandlerOptions{
 			Level:       slog.LevelInfo,
 			ReplaceAttr: replaceAttr,
 		})
@@ -108,7 +111,7 @@ func initializeLogger(logFile string) (*slog.Logger, closeFunc, error) {
 				fileHandler,
 				stderrHandler,
 			)), func() error {
-				return bufferedLogFile.Flush()
+				return logger.Close()
 			}, nil
 	}
 	return slog.New(stderrHandler), func() error {
