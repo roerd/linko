@@ -51,7 +51,11 @@ func httpError(ctx context.Context, w http.ResponseWriter, status int, err error
 	if logCtx, ok := ctx.Value(logContextKey).(*LogContext); ok {
 		logCtx.Error = err
 	}
-	http.Error(w, err.Error(), status)
+	errorText := err.Error()
+	if status == 401 || status == 403 || status == 500 {
+		errorText = http.StatusText(status)
+	}
+	http.Error(w, errorText, status)
 }
 
 func requestLogger(logger *slog.Logger) func(http.Handler) http.Handler {
