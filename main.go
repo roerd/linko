@@ -6,8 +6,10 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"os"
 	"os/signal"
+	"slices"
 	"syscall"
 	"time"
 
@@ -129,7 +131,25 @@ type stackTracer interface {
 	StackTrace() pkgerr.StackTrace
 }
 
+var sensitiveKeys = []string{"user", "password", "key", "apikey", "secret", "pin", "creditcardno"}
+
+func safeDSN(dsn string) string {
+	parsed, err := url.Parse(dsn)
+	if err != nil {
+		return "invalid dsn"
+	}
+	_, ok := parsed.User.Password()
+	if !ok {
+		return "no credentials"
+	}
+	parsed.User = url.UserPassword(parsed.User.Username(), "[REDACTED]")
+	return parsed.String()
+}
+
 func replaceAttr(groups []string, a slog.Attr) slog.Attr {
+	if slices.Contains(sensitiveKeys, a.Key) {
+		return slog.String(a.Key, "[REDACTED]")
+	}
 	if a.Key == "error" {
 		err, ok := a.Value.Any().(error)
 		if !ok {
@@ -168,6 +188,12 @@ func replaceAttr(groups []string, a slog.Attr) slog.Attr {
 		}
 
 		return slog.String("error", fmt.Sprintf("%+v", err))
+	}
+	if a.Value.Kind() == slog.KindString {
+		safeDSN := safeDSN(a.Value.String())
+		if safeDSN != "invalid dsn" && safeDSN != "no credentials" {
+			return slog.String(a.Key, safeDSN)
+		}
 	}
 	return a
 }
